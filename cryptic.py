@@ -66,28 +66,18 @@ class App(tk.Tk):
         # Infos
         self.stat = tk.Label(bar, text = 'Cryptic - github.com/Egsagon', **color)
         self.stat.pack(side = 'left')
+               
+        buttons = {
+            'TARGET': self.load_dir,
+            'FULL': self.size_toggle,
+            'GOTO': self.goto,
+            'RAND': self.chunk,
+            'SAVE': self.save,
+            'CAT': self.cat
+        }
         
-        # Change directory button
-        move = tk.Button(bar, text = 'TARGET', command = self.load_dir, **color)
-        move.pack(side = 'right')
-        
-        # Fullscreen button
-        full = tk.Button(bar, text = 'FULL', command = self.size_toggle, **color)
-        full.pack(side = 'right')
-        
-        # Goto button
-        goto = tk.Button(bar, text = 'GOTO', command = self.goto, **color)
-        goto.pack(side = 'right')
-        
-        # Random chunk button
-        chunk = tk.Button(bar, text = 'RAND', command = self.chunk, **color)
-        chunk.pack(side = 'right')
-        
-        # Save button
-        tk.Button(bar, text = 'SAVE', command = self.save, **color).pack(side = 'right')
-        
-        # Category button
-        tk.Button(bar, text = 'CAT', command = self.cat, **color).pack(side = 'right')
+        for tx, cmd in buttons.items():
+            tk.Button(bar, text = tx, command = cmd).pack(side = 'right')
         
         bar.pack(side = 'bottom', fill = 'x')
         
