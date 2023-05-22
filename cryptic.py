@@ -6,6 +6,7 @@ github.com/Egsagon/cryptic
 
 CONFIG = './conf.json'
 INSTALL = False
+CACHE_LENGTH = 30
 
 import os
 import sys
@@ -18,6 +19,7 @@ if INSTALL:
     os.system(py + ' -m pip install Pillow tk fast_file_encryption')
 
 from pathlib import Path
+from typing import Callable
 from PIL import Image, ImageTk
 
 import tkinter as tk
@@ -25,6 +27,10 @@ import tkinter.messagebox as tkmb
 import tkinter.filedialog as tkfd
 
 import fast_file_encryption as ffe
+
+
+# Get directory tree root
+SOURCE = Path(os.path.dirname(__file__)).parent.parent
 
 
 class App(tk.Tk):
@@ -48,6 +54,7 @@ class App(tk.Tk):
         self.bind("<Button-5>", self.wheel)
         self.bind('<Button-3>', self.delete)
         self.bind('<Return>', self.add)
+        self.bind('<space>', self.quick)
         
         self.protocol("WM_DELETE_WINDOW", self.stop)
         
@@ -59,28 +66,32 @@ class App(tk.Tk):
         self.categories = json.load(open(CONFIG))
         
         # Widgets
-        bar = tk.Frame(self, bg = '#000', bd = 1, relief = 'sunken', height = 40)
-        
         color = dict( bg = '#000', fg = '#fff' )
+        
+        bar = tk.Frame(self, bg = '#000', bd = 1, relief = 'sunken', height = 40)
         
         # Infos
         self.stat = tk.Label(bar, text = 'Cryptic - github.com/Egsagon', **color)
         self.stat.pack(side = 'left')
-               
-        buttons = {
-            'TARGET': self.load_dir,
-            'FULL': self.size_toggle,
-            'GOTO': self.goto,
-            'RAND': self.chunk,
-            'SAVE': self.save,
-            'CAT': self.cat
-        }
         
-        for tx, cmd in buttons.items():
-            tk.Button(bar, text = tx, command = cmd).pack(side = 'right')
+        # Categories info
+        self.cats = tk.Frame(bar, bg = '#000')
+        self.cats.pack(side = 'left')
+        
+        # Bar buttons
+        buttons = {'TARGET': self.load_dir, 'FULL' : self.size_toggle,
+                   'GOTO'  : self.goto,     'RAND' : self.chunk,
+                   'SAVE'  : self.save,     'KEY'  : self.load_RSA,
+                   
+                   'CAT'     : self.partial_cat(False),
+                   'GLOB CAT': self.partial_cat(True)}
+        
+        for tx, fn in buttons.items():
+            tk.Button(bar, text = tx, command = fn, **color).pack(side = 'right')
         
         bar.pack(side = 'bottom', fill = 'x')
         
+        # Label for displaying image
         self.image: tk.Label = None
         
         # Variables
@@ -96,6 +107,8 @@ class App(tk.Tk):
         self.files: list[str] = None
         self.extensions = ('.png', '.jpg', '.jpeg')
         
+        self.default_cat: str = None
+        
         # Select directory and key
         
         if key is None:
@@ -105,8 +118,6 @@ class App(tk.Tk):
         else:
             self.key = ffe.read_private_key(Path(key))
             self.key_path = key
-        
-        # self.load_dir()
         
         # Load first image
         self.update()
@@ -147,12 +158,15 @@ class App(tk.Tk):
         Change the window size to floating.
         '''
         
-        ratio = .5
+        ratio = .8
         sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
         
+        # Minimum size
+        minw, minh = 800, 600
+        
         # Optimal ratio
-        w = int( sw * ratio )
-        h = int( sh * ratio )
+        w = min( int( sw * ratio ), minw )
+        h = min( int( sh * ratio ), minh )
         x = int( ( sw * (1 - ratio) ) // 2 )
         y = int( ( sh * (1 - ratio) ) // 2 )
         
@@ -176,8 +190,8 @@ class App(tk.Tk):
         path = tkfd.askopenfilename(title = 'Private RSA Key')
         
         if not path:
-            tkmb.showerror('Invalid', 'No file selected, exiting.')
-            return self.stop()
+            return tkmb.showerror('Invalid', 'No key specified.')
+            # return self.stop()
         
         try:
             self.key = ffe.read_private_key(Path(path))
@@ -192,7 +206,7 @@ class App(tk.Tk):
         Load a directory to decrypt.
         '''
         
-        path = tkfd.askdirectory(title = 'Enctypted directory')
+        path = tkfd.askdirectory(title = 'Enctypted directory', initialdir = SOURCE)
         self.dir = Path(path)
         
         if not path: return
@@ -220,7 +234,7 @@ class App(tk.Tk):
         self.next()
         self.next()
         
-    def get(self, *_) -> Image:
+    def get(self, *_) -> Image.Image:
         '''
         Load the current image to the cache
         or decrypt it and returns it.
@@ -228,7 +242,6 @@ class App(tk.Tk):
         
         # Get the current encrypted file
         file = self.files[ self.index ]
-        
         cached = self.cache / file
         
         # Load image from cache
@@ -237,13 +250,21 @@ class App(tk.Tk):
         
         # Decrypt image to cache
         else:
-            self.decryptor.copy_decrypted(
-                source = self.dir / file,
-                destination = cached
-            )
+            try:
+                self.decryptor.copy_decrypted(
+                    source = self.dir / file,
+                    destination = cached
+                )
+                
+                image = Image.open(cached)
+                self.image_cache[cached] = image
             
-            image = Image.open(cached)
-            self.image_cache[cached] = image
+            except Exception as err:
+                
+                tkmb.showerror('Error', 'An error happened during decryption:' \
+                               + repr(err))
+                
+                raise err
         
         # Update
         return image
@@ -270,6 +291,11 @@ class App(tk.Tk):
         if self.files is None or not len(self.files):
             return self.stat.config(text = 'In no/empty directory')
         
+        # Delete chache if too big
+        if len(self.image_cache) > CACHE_LENGTH:
+            
+            self.image_cache = {}
+        
         # Load and resize the image
         original = self.get()
         
@@ -290,14 +316,44 @@ class App(tk.Tk):
             self.image.image = photo
         
         # Update the status bar
-        file = str(self.dir / self.files[ self.index ])
-        cats = ', '.join([cat for cat, els in self.categories.items() if file in els])
+        file = ( self.dir / self.files[ self.index ] ).relative_to(SOURCE).as_posix()
         
         sep = '   '
         
         text = f'{self.index + 1} / {len(self.files)}{sep}RSA: {self.key_path}'
-        text += f'{sep}DIR: {self.dir}{sep}CAT: {cats}'
-        text += f'{sep}W/H: {original.width}/{original.height}'
+        text += f'{sep}DIR: {self.dir}'
+        text += f'{sep}W/H: {original.width}/{original.height}{sep}CAT: '
+        
+        # Update categories
+        cats = [cat for cat, els in self.categories.items() if file in els]
+        
+        for widget in self.cats.winfo_children():
+            widget.destroy()
+        
+        def partial_delete(cat: str, path: str) -> Callable:
+            # Partial handling binding callback
+        
+            def delete(*_) -> None:
+                # Try to remove the widget from a category
+                
+                # Confirm
+                if not tkmb.askyesno('Confirm', f'Remove {path} from "{cat}"?'):
+                    return
+                
+                print('removing', path, 'from', cat)
+                self.categories[cat].remove(path)
+                
+                # Refresh the cats
+                self.update()
+            
+            return delete
+        
+        for cat in cats:
+            
+            widget = tk.Label(self.cats, text = cat, bg = '#7d7d7d')
+            widget.pack(padx = 5, side = 'left')
+            
+            widget.bind('<ButtonRelease-1>', partial_delete(cat, file))
         
         self.stat.config(text = text)
     
@@ -382,7 +438,10 @@ class App(tk.Tk):
         '''
         
         # Get current file path
-        path = str(self.dir / self.files[ self.index ])
+        path = ( self.dir / self.files[ self.index ] ).relative_to(SOURCE)
+        path = path.as_posix()
+
+        print(path)
         
         # Get available categories
         cats = [f'{name} ({len(files)} entries)' for name, files in self.categories.items()]
@@ -391,14 +450,17 @@ class App(tk.Tk):
             
             name = entry.get()
             
+            
             if not name:
                 name = li.selection_get().split(' (')[0]
+                
+            print('Saving file with path', path, 'in category', name)
             
             if name in self.categories:
-                self.categories[name] += [ path ]
+                self.categories[name] += [path]
         
             else:
-                self.categories[name] = [ path ]
+                self.categories[name] = [path]
             
             popup.destroy()
             self.update()
@@ -472,49 +534,85 @@ class App(tk.Tk):
         
         self.get().save(path)
     
-    def cat(self, *_) -> None:
+    def partial_cat(self, glob: bool) -> Callable:
         '''
-        Open all files from a category from the current target.
+        Open all files from a the current target related to a category.
         '''
         
-        # Get available categories
-        cats = [f'{name} ({len(files)} entries)' for name, files in self.categories.items()]
-        
-        def onclick(*_) -> None:
-            # Get the files
+        def cat(*_) -> None:
+            # Get available categories
+            cats = [f'{name} ({len(files)} entries)'
+                    for name, files in self.categories.items()]
             
-            name = li.selection_get().split(' (')[0]
-            
-            filtered = []
-            for file in self.files:
-                path = str(self.dir / file)
-                cats = [cat for cat, els in self.categories.items() if path in els]
+            def onclick(*_) -> None:
+                # Get all afiliated files
                 
-                if name in cats:
-                    filtered += [file]
+                name = li.selection_get().split(' (')[0]
+                pathes = self.categories[name]
+                self.files = []
+                
+                for path in pathes:
+                    
+                    # Escape from the parent dir of the script
+                    p = Path('../../' + path).resolve()
+                    
+                    # Hack to magically resolve the path
+                    # and use system format
+                    p = Path( os.path.normpath(str(p)) )
+                    
+                    if not p.exists():
+                        print('Found dead path:', p)
+                        continue
+                    
+                    if glob or p.is_relative_to(self.dir):
+                        self.files.append(p.name)
+                    
+                self.update()
+                popup.destroy()
+                tkmb.showinfo('Done', f'Loaded cat "{name}" ({len(self.files)})!')
             
-            self.files = filtered
-        
-            self.update()
-            popup.destroy()
+            popup = tk.Toplevel(self)
+
+            tk.Label(popup, text = 'Select category:').pack()
             
-            tkmb.showinfo('Operation', f'Loaded cat "{name}"!')
-        
-        popup = tk.Toplevel(self)
+            li = tk.Listbox(popup)
+            for i, el in enumerate(cats): li.insert(i, el)
+            li.pack()
+            
+            tk.Button(popup, text = 'OK', command = onclick).pack()
+            tk.Button(popup, text = 'X', command = popup.destroy).pack()
+            
+            li.bind('<Return>', onclick)
+            li.focus()
 
-        tk.Label(popup, text = 'Select category:').pack()
-        
-        li = tk.Listbox(popup)
-        for i, el in enumerate(cats): li.insert(i, el)
-        li.pack()
-        
-        tk.Button(popup, text = 'OK', command = onclick).pack()
-        tk.Button(popup, text = 'X', command = popup.destroy).pack()
-        
-        li.bind('<Return>', onclick)
-        li.focus()
+            popup.mainloop()
+    
+        return cat
 
-        popup.mainloop()
+    def quick(self, *_) -> None:
+        '''
+        Quickly add a category to the current file.
+        '''
+        
+        # Get current file path
+        path = ( self.dir / self.files[ self.index ] ).relative_to(SOURCE)
+        path = path.as_posix()
+        
+        if self.default_cat is None:
+            
+            self.default_cat = 'a' # TODO
+        
+        name = self.default_cat
+        
+        print('Saving file with path', path, 'in category', name)
+            
+        if name in self.categories:
+            self.categories[name] += [path]
+    
+        else:
+            self.categories[name] = [path]
+        
+        self.update()
 
 
 if __name__ == '__main__':
