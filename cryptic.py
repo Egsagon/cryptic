@@ -140,6 +140,7 @@ class App(tk.Tk):
             tkmb.showinfo('Chunk generated', f'Sampled {size} files!')
         
         popup = tk.Toplevel(self)
+        popup.wm_title('popup')
         
         tk.Label(popup, text = 'Select chunk size')
         
@@ -466,9 +467,7 @@ class App(tk.Tk):
             self.update()
         
         popup = tk.Toplevel(self)
-        # x, y = self.winfo_pointerxy()
-        # popup.geometry(f'+{x - 5}+{y - 5}')
-        # popup.overrideredirect(1)
+        popup.wm_title('popup')
         
         tk.Label(popup, text = 'Select category:').pack()
         
@@ -507,6 +506,7 @@ class App(tk.Tk):
         
         popup = tk.Toplevel(self)
         popup.overrideredirect(1)
+        popup.wm_title('popup')
         
         x, y = self.winfo_pointerxy()
         popup.geometry(f'200x20+{x - 100}+{y - 10}')
